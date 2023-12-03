@@ -4,7 +4,6 @@
 #include <mutex>
 #include <vector>
 #include <chrono>
-#include <functional>
 #include "CircularQueue.h"
 
 
@@ -19,6 +18,7 @@ void producer(int number_of_jobs, CircularQueue& queue);
 void consumer(CircularQueue& queue);
 bool wait_at_semaphore(sem_t* semaphore, std::chrono::seconds timeout);
 
+/* std::cerr used throughout to ensure print output is as desired */
 
 int main(){
 	int queue_size;
@@ -36,7 +36,7 @@ int main(){
 	std::cout << "Please enter the number of consumers you would like:" << std::endl;
 	std::cin >> consumer_number;
 
-
+	// Handle input errors
     if (queue_size <= 0 || number_of_producer_jobs <= 0 || producer_number <= 0 || consumer_number <= 0) {
         std::cerr << "Invalid input. All arguments must be greater than 0." << std::endl;
         return 1;
@@ -49,12 +49,12 @@ int main(){
 
 	// input variables are ok, so now create our queue
 	CircularQueue queue(queue_size);
-	// initialise our semaphores where appropriate
-	sem_init(&is_space_semaphore, 0, queue_size);
-	sem_init(&not_empty_semaphore, 0, 0);
-	//is_space_semaphore = queue_size;
-	//not_empty_semaphore = 0;
-
+	// initialise our semaphores where appropriate, with error handling for system call errors
+	if (sem_init(&is_space_semaphore, 0, queue_size) == -1 || 
+			sem_init(&not_empty_semaphore, 0, 0) == -1) {
+		std::cerr << "Semaphore initialization failed" << std::endl;
+		return 1;
+	}
 
 	// create producer threads
     std::vector<std::thread> producer_threads;
@@ -79,6 +79,12 @@ int main(){
 	for (auto& t : consumer_threads){
 		t.join();
 	}
+	
+	// finish by destroying semaphores
+	if (sem_destroy(&is_space_semaphore) == -1 || sem_destroy(&not_empty_semaphore) == -1) {
+		std::cerr << "Semaphore destruction failed." << std::endl;
+	    return 1;
+	}
 
 	return 0;
 }
@@ -97,12 +103,12 @@ void producer(int number_of_producer_jobs, CircularQueue& queue) {
 			// Generate a random job duration between 1 and 10
 			int job = rand() % 10 + 1;
 
-			//sem_wait(&is_space_semaphore); //reduce space
 			// Lock the queue before adding a job
 			mutex_semaphore.lock();
 			queue.add(job);
-			queue.display();
-			std::cerr << "Produced a job with duration " << job << std::endl;
+			std::cerr << "Produced a job with duration " << job << ". The list is now: ";
+			queue.display(); 
+			std::cerr << std::endl;
 			// now unlock the queue 
 			mutex_semaphore.unlock();
 			// perform 'up' on the not_empty_semaphore to indicate there is a job that can be consumed
@@ -128,7 +134,9 @@ void consumer(CircularQueue& queue) {
 
 		//check if the queue has elements. If it does we can 'consume'
         int job = queue.pop();
-        std::cerr << "Consumed a job of duration " << job << std::endl;
+        std::cerr << "Consumed a job of duration " << job << ". The list is now: ";
+		queue.display();
+		std::cerr << std::endl;
 			
         // we've taken a job so now we can free up the queue
 		mutex_semaphore.unlock();

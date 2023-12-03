@@ -31,7 +31,8 @@ void CircularQueue::add(int value){
 
 int CircularQueue::pop(){
 	if (front == -1) {
-		return 0;
+		std::cerr << "List is empty!" << std::endl;
+		return 1;
 	}
 	 
 	int data = arr[front];
@@ -52,7 +53,7 @@ int CircularQueue::pop(){
 
 void CircularQueue::display(){
 	if (front == -1){
-		std::cerr << "Queue is Empty" << std::endl;
+		std::cerr << "Empty" << std::endl;
 		return;
 	}
 	
