@@ -9,14 +9,14 @@
 
 
 const int MAX_QUEUE_SIZE = 100;
-// create semaphores
+// create semaphores; global scope so every consumer and producer can see
 std::mutex mutex_semaphore;
 sem_t is_space_semaphore;
 sem_t not_empty_semaphore;
 
 
-void producer(int number_of_jobs, CircularQueue queue);
-void consumer(CircularQueue queue);
+void producer(int number_of_jobs, CircularQueue& queue);
+void consumer(CircularQueue& queue);
 
 
 int main(){
@@ -59,14 +59,14 @@ int main(){
     std::vector<std::thread> producer_threads;
 	for (int i=0; i<producer_number; i++){
 		// thread needs a function to be run in the thread and arguments to pass to that function
-		producer_threads.emplace_back(std::bind(producer, number_of_producer_jobs, queue));
+		producer_threads.emplace_back([&]() { producer(number_of_producer_jobs, std::ref(queue));});
 	}
 
 	// create consumer threads
     std::vector<std::thread> consumer_threads;
 	for (int i=0; i<consumer_number; i++){
 		// thread needs a function to be run in the thread and arguments to pass to that function
-		consumer_threads.emplace_back(std::bind(consumer, queue));
+		consumer_threads.emplace_back([&]() { consumer(std::ref(queue));});
 	}
 
 	// start producer threads
@@ -85,7 +85,7 @@ int main(){
 
 
 
-void producer(int number_of_producer_jobs, CircularQueue queue) {
+void producer(int number_of_producer_jobs, CircularQueue& queue) {
     for (int i = 0; i < number_of_producer_jobs; i++) {
         // Generate a random job duration between 1 and 10
 		int job = rand() % 10 + 1;
@@ -106,7 +106,7 @@ void producer(int number_of_producer_jobs, CircularQueue queue) {
     }
 }
 
-void consumer(CircularQueue queue) {
+void consumer(CircularQueue& queue) {
     while (true) {
         // perform a 'down' on the not_empty_semaphore
 		sem_wait(&not_empty_semaphore);
