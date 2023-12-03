@@ -17,6 +17,7 @@ sem_t not_empty_semaphore;
 
 void producer(int number_of_jobs, CircularQueue& queue);
 void consumer(CircularQueue& queue);
+bool wait_at_semaphore(sem_t* semaphore, std::chrono::seconds timeout);
 
 
 int main(){
@@ -86,56 +87,83 @@ int main(){
 
 
 void producer(int number_of_producer_jobs, CircularQueue& queue) {
-    for (int i = 0; i < number_of_producer_jobs; i++) {
-        // Generate a random job duration between 1 and 10
-		int job = rand() % 10 + 1;
+    std::chrono::seconds timeout(10); //set wait time at the semaphore to be a max of 10 seconds 
+    
+	for (int i = 0; i < number_of_producer_jobs; i++) {
 		
-		// Wait for an empty slot in the queue
-		sem_wait(&is_space_semaphore);
-		//is_space_semaphore.acquire();  
-		// Lock the queue before adding a job
-		mutex_semaphore.lock();
-        queue.add(job);
-		queue.display();
-        std::cerr << "Produced a job with duration " << job << std::endl;
-		// now unlock the queue 
-		mutex_semaphore.unlock();
-        // perform 'up' on the not_empty_semaphore to indicate there is a job that can be consumed
-		sem_post(&not_empty_semaphore);
-		//not_empty_semaphore.release();
+		// Wait for an empty slot in the queue. If less than 10s, we move into the body of the if statement
+		// we perform the semaphore 'down' in the boolean function itself
+		if (wait_at_semaphore(&is_space_semaphore, timeout)){
+			// Generate a random job duration between 1 and 10
+			int job = rand() % 10 + 1;
+
+			//sem_wait(&is_space_semaphore); //reduce space
+			// Lock the queue before adding a job
+			mutex_semaphore.lock();
+			queue.add(job);
+			queue.display();
+			std::cerr << "Produced a job with duration " << job << std::endl;
+			// now unlock the queue 
+			mutex_semaphore.unlock();
+			// perform 'up' on the not_empty_semaphore to indicate there is a job that can be consumed
+			sem_post(&not_empty_semaphore); //add one to amount in queue
+
+		}
+		else {
+			std::cerr << "Exiting producer as wait time exceeded 10s." << std::endl;
+			break;
+		}
+		 
     }
 }
 
 void consumer(CircularQueue& queue) {
-    while (true) {
-        // perform a 'down' on the not_empty_semaphore
-		sem_wait(&not_empty_semaphore);
-		//not_empty_semaphore.acquire();
-        // now lock the queue while we perform checks on it
+    std::chrono::seconds timeout(10); //set wait time at the semaphore to be a max of 10 seconds 
+	while (true) {
+		// perform a 'down' on the not_empty_semaphore
+		sem_wait(&not_empty_semaphore); //reduce amount in queue
+
+		//now lock the queue while we perform checks on it
 		mutex_semaphore.lock();
 
-        // check if the queue has elements. If it does we can 'consume'
-		if (!queue.isEmpty()) {
-            int job = queue.pop();
-            std::cerr << "Consumed a job of duration " << job << std::endl;
-            // we've taken a job so now we can free up the queue
-			mutex_semaphore.unlock();
-            // perform an 'up' on this is_space semaphore to signal we have freed up a slot
-			sem_post(&is_space_semaphore);
-			//is_space_semaphore.release();
-            std::this_thread::sleep_for(std::chrono::seconds(job));
-        } 
-		// case if the queue is empty. We can unlock it so other threads can use it
-		else {
-            mutex_semaphore.unlock();
+		//check if the queue has elements. If it does we can 'consume'
+        int job = queue.pop();
+        std::cerr << "Consumed a job of duration " << job << std::endl;
+			
+        // we've taken a job so now we can free up the queue
+		mutex_semaphore.unlock();
+			
+        // perform an 'up' on this is_space semaphore to signal we have freed up a slot
+		sem_post(&is_space_semaphore);
+			
+        std::this_thread::sleep_for(std::chrono::seconds(job));
+         
+		// case if the queue is empty
+		if (queue.isEmpty()){
 			// sleep for 10s
             std::this_thread::sleep_for(std::chrono::seconds(10));
             // if the queue is still empty, exit
-			if (queue.isEmpty()) {
-                std::cerr << "No jobs left. Exiting consumer." << std::endl;
-                break;
-            }
-        }
+			if (queue.isEmpty()){
+				std::cerr << "No jobs left. Exiting consumer." << std::endl;
+				break;
+			}
+		}
     }
 }
 
+bool wait_at_semaphore(sem_t* semaphore, std::chrono::seconds timeout) {
+    auto start = std::chrono::steady_clock::now();
+
+    while (true) {
+	    if (sem_trywait(semaphore) == 0) {
+			return true; // Acquired the semaphore
+		}
+		
+		auto end = std::chrono::steady_clock::now();
+		auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(end - start);
+		
+		if (elapsed >= timeout) {
+			return false;
+		}
+	}
+}
